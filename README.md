@@ -33,7 +33,7 @@ Then search for **Orchestration Panel** (`yyq19990828.orchestration-panel`), or 
 ### Option 2 — Direct Install via Orca CLI
 
 ```bash
-orca plugin install yyq19990828/orchestration-panel@v2.0.0 --json
+orca plugin install yyq19990828/orchestration-panel@v2.0.1 --json
 ```
 
 > On Linux outside an active Orca terminal, run `orca-ide` instead of `orca` (so it does not invoke `/usr/bin/orca` screen reader).
@@ -42,10 +42,14 @@ orca plugin install yyq19990828/orchestration-panel@v2.0.0 --json
 
 ### Companion Agent Skill (Optional)
 
-To teach Claude Code, Codex, OpenCode, or Orca agents how to turn requirements into PRDs, technical specs, and runnable task DAGs before opening the panel:
+After installing the plugin, run **Orchestration Panel: Install or Update Agent Skill** from the plugin details or command palette. Alternatively, open the plugin sidebar and select **Skill → Install or update**. Both install the bundled `orca-dag` version into detected local Agent skill directories without a selected Run, viewer connection, or download. They preserve `USER_PREFERENCES.md`. Installing or starting the plugin does not install the skill automatically.
+
+Use **Orchestration Panel: Uninstall Agent Skill** to remove only the bundled skill's managed files from local Agent skill directories. Preferences, custom files, symlinked skill checkouts, the plugin, and workspace data remain untouched.
+
+Without the plugin, you can install the skill separately:
 
 ```bash
-npx skills add yyq19990828/Orca-dag --skill orca-dag
+npx skills add yyq19990828/orca-orchestration-launcher --skill orca-dag
 ```
 
 ## Commands & Settings
@@ -57,6 +61,8 @@ npx skills add yyq19990828/Orca-dag --skill orca-dag
 | `orchestration-panel.openTab` | Orchestration Panel: Open Full Tab | Open or revive the full 4-zone DAG workbench in an Orca browser tab |
 | `orchestration-panel.status` | Orchestration Panel: Connection Status | Show active workspace bridge connection status |
 | `orchestration-panel.reconnect` | Orchestration Panel: Reconnect Viewer | Re-probe endpoints / restart the embedded backend for the active workspace |
+| `orchestration-panel.installSkill` | Orchestration Panel: Install or Update Agent Skill | Install the bundled `orca-dag` skill and report how many directories changed or were already current |
+| `orchestration-panel.uninstallSkill` | Orchestration Panel: Uninstall Agent Skill | Remove managed `orca-dag` skill files without uninstalling the plugin |
 
 ### Settings
 
@@ -85,8 +91,8 @@ Orchestration Panel declares `execution: "trusted-worker"` (`pluginApi: 1`) and 
 
 ## Source Code & Issues
 
-`yyq19990828/orchestration-panel` is the automated distribution repository staged from **[yyq19990828/Orca-dag](https://github.com/yyq19990828/Orca-dag)** (`v2.0.0`).
+`yyq19990828/orchestration-panel` is the automated distribution repository staged from **[yyq19990828/orca-orchestration-launcher](https://github.com/yyq19990828/orca-orchestration-launcher)** (`v2.0.1`).
 
 - Full TypeScript source for the companion worker lives in [`src/`](./src) alongside the bundled `worker.mjs`.
-- Full source for the backend server, React Flow workbench SPA, and `orca-dag` CLI lives in [yyq19990828/Orca-dag](https://github.com/yyq19990828/Orca-dag).
-- Bug reports, feature requests, and pull requests: <https://github.com/yyq19990828/Orca-dag/issues>.
+- Full source for the backend server, React Flow workbench SPA, and `orca-dag` CLI lives in [yyq19990828/orca-orchestration-launcher](https://github.com/yyq19990828/orca-orchestration-launcher).
+- Bug reports, feature requests, and pull requests: <https://github.com/yyq19990828/orca-orchestration-launcher/issues>.

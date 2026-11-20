@@ -10023,7 +10023,7 @@ var init_webAssets = __esm({
 });
 
 // server/src/skill.ts
-import { existsSync, lstatSync as lstatSync3, mkdirSync as mkdirSync3, readdirSync as readdirSync2, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync as lstatSync3, mkdirSync as mkdirSync3, readdirSync as readdirSync2, readFileSync, renameSync, rmdirSync as rmdirSync2, unlinkSync as unlinkSync3, writeFileSync } from "node:fs";
 import { dirname as dirname2, isAbsolute as isAbsolute3, join as join7, parse, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
 import { homedir as homedir3 } from "node:os";
 function configuredRoot(home, parent, envName, env) {
@@ -10164,9 +10164,9 @@ function migrateLegacySkillDir(sources, destination, destinationBoundary) {
     }
   }
 }
-async function readSkillFiles(here) {
+async function readSkillFiles(here, bundledSkillRoot) {
   try {
-    const embedded2 = await loadEmbeddedSkillFiles();
+    const embedded2 = bundledSkillRoot ? null : await loadEmbeddedSkillFiles();
     if (embedded2 && typeof embedded2["SKILL.md"] === "string") {
       const files = /* @__PURE__ */ new Map();
       files.set("SKILL.md", embedded2["SKILL.md"]);
@@ -10180,8 +10180,10 @@ async function readSkillFiles(here) {
     }
   } catch {
   }
-  for (const skillRoot of [join7(here, "..", "..", "skill"), join7(here, "..", "..", "..", "skill")]) {
+  const roots = bundledSkillRoot ? [bundledSkillRoot] : [join7(here, "..", "..", "skill"), join7(here, "..", "..", "..", "skill")];
+  for (const skillRoot of roots) {
     try {
+      if (bundledSkillRoot && !lstatIfPresent(skillRoot)?.isDirectory()) continue;
       const entryPath = join7(skillRoot, "SKILL.md");
       if (!existsSync(entryPath)) continue;
       const entryStat = lstatSync3(entryPath);
@@ -10206,13 +10208,13 @@ async function readSkillFiles(here) {
   }
   return null;
 }
-async function installSkill(moduleDir, enabled) {
+async function installSkill(moduleDir, enabled, bundledSkillRoot) {
   const result = { installed: [], upToDate: [], skipped: null };
   if (!enabled) {
     result.skipped = "disabled";
     return result;
   }
-  const skillFiles = await readSkillFiles(moduleDir);
+  const skillFiles = await readSkillFiles(moduleDir, bundledSkillRoot);
   if (!skillFiles) {
     result.skipped = "not-found";
     return result;
@@ -10276,6 +10278,43 @@ async function installSkill(moduleDir, enabled) {
     }
   }
   return result;
+}
+async function uninstallBundledSkill(moduleDir) {
+  const files = await readSkillFiles(moduleDir, join7(moduleDir, "skill"));
+  if (!files) return null;
+  let removed = 0;
+  let failed = 0;
+  for (const { skills, safeRoot } of resolveAgentSkillDirs()) {
+    const dir = join7(skills, SKILL_NAME);
+    if (!isSafeSkillPath(dir, false, safeRoot)) continue;
+    let changed = false;
+    let incomplete = false;
+    for (const name of files.keys()) {
+      const target = join7(dir, name);
+      if (!isSafeSkillPath(target, false, safeRoot)) continue;
+      try {
+        if (!lstatIfPresent(target)?.isFile()) continue;
+        unlinkSync3(target);
+        changed = true;
+      } catch {
+        incomplete = true;
+      }
+    }
+    if (changed) {
+      removed++;
+      for (const target of [join7(dir, "references"), dir]) {
+        if (!isSafeSkillPath(target, false, safeRoot)) continue;
+        try {
+          if (lstatIfPresent(target)?.isDirectory()) rmdirSync2(target);
+        } catch (err) {
+          const code = err.code;
+          if (code !== "ENOTEMPTY" && code !== "EEXIST" && code !== "ENOENT") incomplete = true;
+        }
+      }
+    }
+    if (incomplete) failed++;
+  }
+  return { removed, failed };
 }
 function describeSkillInstall(result) {
   if (result.skipped === "not-found") return `Skill "${SKILL_NAME}" not found in this install \u2014 skipped.`;
@@ -29826,7 +29865,7 @@ var require_view = __commonJS({
     var dirname6 = path.dirname;
     var basename4 = path.basename;
     var extname2 = path.extname;
-    var join16 = path.join;
+    var join17 = path.join;
     var resolve6 = path.resolve;
     module.exports = View;
     function View(name, options) {
@@ -29874,12 +29913,12 @@ var require_view = __commonJS({
     };
     View.prototype.resolve = function resolve7(dir, file) {
       var ext = this.ext;
-      var path2 = join16(dir, file);
+      var path2 = join17(dir, file);
       var stat5 = tryStat(path2);
       if (stat5 && stat5.isFile()) {
         return path2;
       }
-      path2 = join16(dir, basename4(file, ext), "index" + ext);
+      path2 = join17(dir, basename4(file, ext), "index" + ext);
       stat5 = tryStat(path2);
       if (stat5 && stat5.isFile()) {
         return path2;
@@ -30936,7 +30975,7 @@ var require_send = __commonJS({
     var Stream = __require("stream");
     var util = __require("util");
     var extname2 = path.extname;
-    var join16 = path.join;
+    var join17 = path.join;
     var normalize4 = path.normalize;
     var resolve6 = path.resolve;
     var sep3 = path.sep;
@@ -31155,7 +31194,7 @@ var require_send = __commonJS({
           return res;
         }
         parts = path2.split(sep3);
-        path2 = normalize4(join16(root, path2));
+        path2 = normalize4(join17(root, path2));
       } else {
         if (UP_PATH_REGEXP.test(path2)) {
           debug('malicious path "%s"', path2);
@@ -31290,7 +31329,7 @@ var require_send = __commonJS({
           if (err) return self.onStatError(err);
           return self.error(404);
         }
-        var p = join16(path2, self._index[i]);
+        var p = join17(path2, self._index[i]);
         debug('stat "%s"', p);
         fs.stat(p, function(err2, stat5) {
           if (err2) return next(err2);
@@ -34853,7 +34892,7 @@ __export(uninstall_exports, {
   closeCoordinatorTerminals: () => closeCoordinatorTerminals,
   runUninstall: () => runUninstall
 });
-import { existsSync as existsSync3, lstatSync as lstatSync6, rmSync, rmdirSync as rmdirSync2, unlinkSync as unlinkSync4 } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync6, rmSync, rmdirSync as rmdirSync3, unlinkSync as unlinkSync5 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { dirname as dirname4, join as join15 } from "node:path";
 function removeSkills(dryRun, purge, log) {
@@ -34874,7 +34913,7 @@ function removeSkills(dryRun, purge, log) {
     }
     try {
       if (link) {
-        if (!dryRun) unlinkSync4(dir);
+        if (!dryRun) unlinkSync5(dir);
         log(`${act(dryRun ? "would remove" : "removed")}${agent}: ${tilde(dir)} (symlink only \u2014 your checkout is untouched)`);
         removed++;
         continue;
@@ -34894,7 +34933,7 @@ function removeSkills(dryRun, purge, log) {
           try {
             const fInfo = lstatSync6(skillFile);
             if (fInfo.isFile() && !fInfo.isSymbolicLink()) {
-              if (!dryRun) unlinkSync4(skillFile);
+              if (!dryRun) unlinkSync5(skillFile);
               managedCount++;
             }
           } catch {
@@ -35010,9 +35049,9 @@ async function runUninstall(opts) {
     const endpoint = pluginEndpointPath(opts.workspace);
     checkPluginEndpointFile(endpoint);
     if (!opts.dryRun) {
-      unlinkSync4(endpoint);
+      unlinkSync5(endpoint);
       try {
-        rmdirSync2(dirname4(endpoint));
+        rmdirSync3(dirname4(endpoint));
       } catch {
       }
     }
@@ -35084,8 +35123,9 @@ init_orca();
 init_webAssets();
 init_skill();
 import { spawn } from "node:child_process";
+import { writeSync } from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-import { dirname as dirname5 } from "node:path";
+import { dirname as dirname5, join as join16 } from "node:path";
 
 // server/src/app.ts
 var import_express = __toESM(require_express2(), 1);
@@ -40794,7 +40834,7 @@ init_providerSessions();
 // server/src/pluginBridge.ts
 init_endpoint();
 import { randomBytes as randomBytes3, randomUUID as randomUUID5, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
-import { renameSync as renameSync2, unlinkSync as unlinkSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { renameSync as renameSync2, unlinkSync as unlinkSync4, writeFileSync as writeFileSync2 } from "node:fs";
 var PLUGIN_CONNECTED_TTL_MS = 25e3;
 var MAX_PENDING_NOTIFICATIONS = 20;
 var MAX_PENDING_COMMANDS = 16;
@@ -40834,7 +40874,7 @@ function writePluginEndpointFile(workspaceDir, record4) {
     renameSync2(tmp, target);
   } catch (err) {
     try {
-      unlinkSync3(tmp);
+      unlinkSync4(tmp);
     } catch {
     }
     throw err;
@@ -40844,7 +40884,7 @@ function writePluginEndpointFile(workspaceDir, record4) {
 function removePluginEndpointFile(workspaceDir, instanceId) {
   try {
     if (readPluginEndpointFile(workspaceDir)?.instanceId !== instanceId) return false;
-    unlinkSync3(pluginEndpointPath(workspaceDir));
+    unlinkSync4(pluginEndpointPath(workspaceDir));
     return true;
   } catch {
     return false;
@@ -44881,6 +44921,17 @@ if (argv.includes("uninstall")) {
     purge: argv.includes("--purge"),
     workspace: RAW_WORKSPACE_DIR
   });
+  process.exit(0);
+}
+if (argv[0] === "--install-plugin-skill") {
+  const result = await installSkill(__dirname, true, join16(__dirname, "skill"));
+  const receipt = result.skipped === null ? { ok: true, installed: result.installed.length, upToDate: result.upToDate.length } : { ok: false, code: "bundle_unavailable" };
+  writeSync(1, JSON.stringify(receipt) + "\n");
+  process.exit(0);
+}
+if (argv[0] === "--uninstall-plugin-skill") {
+  const result = await uninstallBundledSkill(__dirname);
+  writeSync(1, JSON.stringify(result ? { ok: true, ...result } : { ok: false, code: "bundle_unavailable" }) + "\n");
   process.exit(0);
 }
 try {

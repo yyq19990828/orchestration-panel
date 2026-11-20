@@ -1,9 +1,10 @@
 // plugin/src/worker.ts
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join as join2 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 // plugin/src/endpoint.ts
 import { createHash, createHmac } from "node:crypto";
@@ -66,6 +67,7 @@ var INBOX_WAIT_MS = 1e4;
 var MAX_PANEL_POST_BYTES = 220 * 1024;
 var MANAGED_START_TIMEOUT_MS = 8e3;
 var MANAGED_POLL_INTERVAL_MS = 80;
+var execFileAsync = promisify(execFile);
 function resolveBundledAssets() {
   try {
     const here = dirname(fileURLToPath(import.meta.url));
@@ -135,6 +137,8 @@ function activate(orca) {
   const outputStreams = /* @__PURE__ */ new Map();
   let focusedWorkspaceId = null;
   const bundledAssets = resolveBundledAssets();
+  let skillInstall;
+  let skillUninstall;
   const state = {
     activatedAt: Date.now(),
     statusCount: 0,
@@ -613,6 +617,49 @@ function activate(orca) {
     await discoverViewers();
     return { ok: true, viewers: connectionSummary() };
   });
+  function runSkillTool(serverEntry, flag) {
+    return execFileAsync(process.execPath, [serverEntry, flag], {
+      cwd: dirname(serverEntry),
+      timeout: 15e3,
+      maxBuffer: 4096
+    }).then(({ stdout }) => JSON.parse(stdout));
+  }
+  function installBundledSkill() {
+    if (!bundledAssets) return { ok: false, code: "bundle_unavailable" };
+    if (skillUninstall) return { ok: false, code: "skill_busy" };
+    return skillInstall ??= runSkillTool(bundledAssets.serverEntry, "--install-plugin-skill").catch(() => ({ ok: false, code: "install_failed" })).finally(() => {
+      skillInstall = void 0;
+    });
+  }
+  orca.commands.register("orchestration-panel.installSkill", async (_args, { signal }) => {
+    if (signal.aborted) return "Agent skill installation cancelled.";
+    const result = await installBundledSkill();
+    if (!result.ok) {
+      if (result.code === "skill_busy") return "Skill removal is in progress. Try installing again after it finishes.";
+      return result.code === "bundle_unavailable" ? "The orca-dag skill is missing from this plugin bundle." : "Could not confirm the orca-dag skill installation. Check the plugin bundle and local permissions.";
+    }
+    if (result.installed === 0 && result.upToDate === 0) {
+      return "No writable, supported Agent skill directory could be confirmed.";
+    }
+    return `orca-dag skill directories installed or updated: ${result.installed}. Already current: ${result.upToDate}.`;
+  });
+  orca.commands.register("orchestration-panel.uninstallSkill", async (_args, { signal }) => {
+    if (signal.aborted) return "Agent skill removal cancelled.";
+    if (!bundledAssets) return "The orca-dag skill is missing from this plugin bundle.";
+    if (skillInstall) return "Skill installation is in progress. Try uninstalling again after it finishes.";
+    skillUninstall ??= runSkillTool(bundledAssets.serverEntry, "--uninstall-plugin-skill").catch(() => ({ ok: false, code: "uninstall_failed" })).finally(() => {
+      skillUninstall = void 0;
+    });
+    const result = await skillUninstall;
+    if (!result.ok) {
+      return result.code === "bundle_unavailable" ? "The orca-dag skill is missing from this plugin bundle." : "Could not confirm orca-dag skill removal. Check the plugin bundle and local permissions.";
+    }
+    if (result.failed > 0) {
+      return `Removed orca-dag skill files from ${result.removed} directories. Could not finish removal in ${result.failed}; check directory permissions.`;
+    }
+    if (result.removed === 0) return "No managed orca-dag skill files were removed.";
+    return `Removed managed orca-dag skill files from ${result.removed} directories. User preferences were kept.`;
+  });
   orca.panels.handle("orchestration-panel.probe", async (rawInput) => {
     const input = rawInput ?? { action: "ping" };
     switch (input.action) {
@@ -764,6 +811,12 @@ function activate(orca) {
     } catch {
     }
   }
+  orca.panels.handle("orca-dag.skill.install", (input, { panel, signal }) => {
+    if (panel.surface !== "panel" || panel.contributionId !== "orchestration" || input?.confirmed !== true || signal.aborted) {
+      return { ok: false, code: "confirmation_required" };
+    }
+    return installBundledSkill();
+  });
   orca.panels.handle("orca-dag.api", async (rawInput, ctx) => {
     const req = rawInput ?? {};
     const method = req.method === "POST" || req.method === "PUT" ? req.method : "GET";
@@ -843,8 +896,8 @@ function activate(orca) {
     const controller = new AbortController();
     activityStreams.set(key, controller);
     const url = `http://127.0.0.1:${conn.endpoint.port}/api/activity/stream?run=${encodeURIComponent(runId)}`;
-    void consumeSse(url, AbortSignal.any([conn.abort.signal, controller.signal]), (_event, data) => {
-      safePostToPanel(key, "orca-dag.activity", data);
+    void consumeSse(url, AbortSignal.any([conn.abort.signal, controller.signal]), (event, data) => {
+      if (event === "message") safePostToPanel(key, "orca-dag.activity", data);
     }).catch(() => {
     }).finally(() => {
       if (activityStreams.get(key) === controller) activityStreams.delete(key);

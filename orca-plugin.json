@@ -2,14 +2,14 @@
   "manifestVersion": 2,
   "id": "orchestration-panel",
   "name": "Orchestration Panel",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Visual multi-agent task DAG workbench for Orca: live coordination modes, hexagonal approval gates, scoped Session wakeups, native resume, and a self-hosted embedded backend.",
   "author": {
     "name": "yyq19990828",
     "url": "https://github.com/yyq19990828"
   },
-  "repository": "https://github.com/yyq19990828/Orca-dag",
-  "homepage": "https://github.com/yyq19990828/Orca-dag",
+  "repository": "https://github.com/yyq19990828/orca-orchestration-launcher",
+  "homepage": "https://github.com/yyq19990828/orca-orchestration-launcher",
   "icon": "icon.png",
   "cover": {
     "path": "assets/workbench-dark.png",
@@ -95,6 +95,14 @@
       {
         "id": "orchestration-panel.reconnect",
         "title": "Orchestration Panel: Reconnect Viewer"
+      },
+      {
+        "id": "orchestration-panel.installSkill",
+        "title": "Orchestration Panel: Install or Update Agent Skill"
+      },
+      {
+        "id": "orchestration-panel.uninstallSkill",
+        "title": "Orchestration Panel: Uninstall Agent Skill"
       }
     ],
     "settings": [
