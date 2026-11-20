@@ -698,18 +698,21 @@ function activate(orca) {
         return { ok: false, error: `unknown action: ${String(input.action)}` };
     }
   });
-  async function resolveActiveViewer() {
+  async function resolveViewer(workspaceId, allowSingleFallback = false) {
     if (!orca.host.has("workspace.list")) return null;
     await discoverViewers();
     if (disposed) return null;
     const inventory = await orca.host.call("workspace.list", {}).catch(() => null);
     if (!inventory) return null;
-    const workspaceId = focusedWorkspaceId ?? (orca.host.has("workspace.readContext") ? (await orca.host.call("workspace.readContext", {}).catch(() => null))?.workspaceId : null);
     const locals = inventory.workspaces.filter((ws) => (ws.hostId === "local" || ws.hostId === null) && Boolean(ws.path));
-    const target = workspaceId ? locals.find((ws) => ws.id === workspaceId) : locals.length === 1 ? locals[0] : void 0;
+    const target = workspaceId ? locals.find((ws) => ws.id === workspaceId) : allowSingleFallback && locals.length === 1 ? locals[0] : void 0;
     if (!target) return null;
     const conn = connections.get(target.path);
     return conn?.connected ? conn : ensureManagedViewer(target.path, target.id);
+  }
+  async function resolveActiveViewer() {
+    const workspaceId = focusedWorkspaceId ?? (orca.host.has("workspace.readContext") ? (await orca.host.call("workspace.readContext", {}).catch(() => null))?.workspaceId : null);
+    return resolveViewer(workspaceId ?? null, true);
   }
   async function ensureMutationToken(conn, forceRefresh = false) {
     if (!forceRefresh && conn.mutationToken) return conn.mutationToken;
@@ -824,7 +827,8 @@ function activate(orca) {
     if (!panelApiPath(url)) {
       return { status: 400, ok: false, body: { error: "Invalid API path", code: "invalid_path" } };
     }
-    const conn = await resolveActiveViewer();
+    const workspaceId = typeof req.workspaceId === "string" ? req.workspaceId : "";
+    const conn = workspaceId && !ctx.signal.aborted ? await resolveViewer(workspaceId) : null;
     if (!conn) {
       return {
         status: 503,
@@ -867,9 +871,9 @@ function activate(orca) {
       return first;
     } catch (err) {
       const causeCode = err?.cause?.code;
-      if (!ctx.signal.aborted) {
+      if (!ctx.signal.aborted && !disposed) {
         if (connections.get(conn.workspacePath) === conn) disconnectViewer(conn.workspacePath);
-        const recovered = await resolveActiveViewer();
+        const recovered = await resolveViewer(workspaceId);
         if (recovered?.workspacePath === conn.workspacePath && (method === "GET" || causeCode === "ECONNREFUSED")) {
           try {
             return await execute(recovered, false);
@@ -884,30 +888,45 @@ function activate(orca) {
       };
     }
   });
+  async function connectPanelStream(streams, key, workspaceId, requestSignal) {
+    streams.get(key)?.abort();
+    const controller = new AbortController();
+    streams.set(key, controller);
+    const conn = !requestSignal.aborted ? await resolveViewer(workspaceId) : null;
+    if (conn && !requestSignal.aborted && !controller.signal.aborted) return { conn, controller };
+    if (streams.get(key) === controller) streams.delete(key);
+    return null;
+  }
+  function closePanelStream(streams, input, panelId) {
+    const subId = input?.subId;
+    if (typeof subId !== "string" || !subId) return;
+    const key = `${panelId}\0${subId}`;
+    streams.get(key)?.abort();
+    streams.delete(key);
+  }
   orca.panels.handle("orca-dag.activity.subscribe", async (rawInput, ctx) => {
     const req = rawInput ?? {};
+    const subId = typeof req.subId === "string" ? req.subId : "";
     const runId = typeof req.runId === "string" ? req.runId.trim() : "";
-    if (!runId) return { ok: false };
-    const key = ctx.panel.id;
-    activityStreams.get(key)?.abort();
-    activityStreams.delete(key);
-    const conn = await resolveActiveViewer();
-    if (!conn) return { ok: false };
-    const controller = new AbortController();
-    activityStreams.set(key, controller);
+    if (!subId || !runId || typeof req.workspaceId !== "string" || !req.workspaceId) return { ok: false };
+    const panelId = ctx.panel.id;
+    const key = `${panelId}\0${subId}`;
+    const stream = await connectPanelStream(activityStreams, key, req.workspaceId, ctx.signal);
+    if (!stream) return { ok: false };
+    const { conn, controller } = stream;
     const url = `http://127.0.0.1:${conn.endpoint.port}/api/activity/stream?run=${encodeURIComponent(runId)}`;
     void consumeSse(url, AbortSignal.any([conn.abort.signal, controller.signal]), (event, data) => {
-      if (event === "message") safePostToPanel(key, "orca-dag.activity", data);
+      if (event === "message" && data && typeof data === "object" && !controller.signal.aborted) {
+        safePostToPanel(panelId, "orca-dag.activity", { ...data, subId });
+      }
     }).catch(() => {
     }).finally(() => {
       if (activityStreams.get(key) === controller) activityStreams.delete(key);
     });
     return { ok: true };
   });
-  orca.panels.handle("orca-dag.activity.unsubscribe", async (_rawInput, ctx) => {
-    const key = ctx.panel.id;
-    activityStreams.get(key)?.abort();
-    activityStreams.delete(key);
+  orca.panels.handle("orca-dag.activity.unsubscribe", (rawInput, ctx) => {
+    closePanelStream(activityStreams, rawInput, ctx.panel.id);
     return { ok: true };
   });
   orca.panels.handle("orca-dag.output.subscribe", async (rawInput, ctx) => {
@@ -916,20 +935,17 @@ function activate(orca) {
     const runId = typeof req.runId === "string" ? req.runId.trim() : "";
     const dispatchId = typeof req.dispatchId === "string" ? req.dispatchId.trim() : "";
     const source = req.source === "terminal" || req.source === "transcript" ? req.source : "auto";
-    if (!subId || !runId || !dispatchId) return { ok: false };
+    if (!subId || !runId || !dispatchId || typeof req.workspaceId !== "string" || !req.workspaceId) return { ok: false };
     const key = `${ctx.panel.id}\0${subId}`;
-    outputStreams.get(key)?.abort();
-    outputStreams.delete(key);
-    const conn = await resolveActiveViewer();
-    if (!conn) return { ok: false };
-    const controller = new AbortController();
-    outputStreams.set(key, controller);
+    const stream = await connectPanelStream(outputStreams, key, req.workspaceId, ctx.signal);
+    if (!stream) return { ok: false };
+    const { conn, controller } = stream;
     const params = new URLSearchParams({ run: runId });
     if (source !== "auto") params.set("source", source);
     const url = `http://127.0.0.1:${conn.endpoint.port}/api/workers/${encodeURIComponent(dispatchId)}/output/stream?${params.toString()}`;
     const panelId = ctx.panel.id;
     void consumeSse(url, AbortSignal.any([conn.abort.signal, controller.signal]), (event, data) => {
-      safePostToPanel(panelId, "orca-dag.output", { subId, event, data });
+      if (!controller.signal.aborted) safePostToPanel(panelId, "orca-dag.output", { subId, event, data });
     }).catch((err) => {
       if (!controller.signal.aborted) {
         safePostToPanel(panelId, "orca-dag.output", {
@@ -943,14 +959,8 @@ function activate(orca) {
     });
     return { ok: true };
   });
-  orca.panels.handle("orca-dag.output.unsubscribe", async (rawInput, ctx) => {
-    const req = rawInput ?? {};
-    const subId = typeof req.subId === "string" ? req.subId.trim() : "";
-    if (subId) {
-      const key = `${ctx.panel.id}\0${subId}`;
-      outputStreams.get(key)?.abort();
-      outputStreams.delete(key);
-    }
+  orca.panels.handle("orca-dag.output.unsubscribe", (rawInput, ctx) => {
+    closePanelStream(outputStreams, rawInput, ctx.panel.id);
     return { ok: true };
   });
   activeShutdown = () => {

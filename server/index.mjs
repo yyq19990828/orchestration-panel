@@ -583,7 +583,7 @@ function sanitize(raw, previous) {
     const layout = r.layout.trim();
     out.layout = layout === "force" ? "layered-lr" : layout;
   }
-  if (typeof r.runId === "string" && r.runId.trim()) {
+  if (typeof r.runId === "string") {
     out.runId = r.runId.trim();
   }
   if (r.leadTaskByRun && typeof r.leadTaskByRun === "object" && !Array.isArray(r.leadTaskByRun)) {

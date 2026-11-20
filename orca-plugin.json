@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "orchestration-panel",
   "name": "Orchestration Panel",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Visual multi-agent task DAG workbench for Orca: live coordination modes, hexagonal approval gates, scoped Session wakeups, native resume, and a self-hosted embedded backend.",
   "author": {
     "name": "yyq19990828",
