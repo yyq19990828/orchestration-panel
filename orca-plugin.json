@@ -1,0 +1,126 @@
+{
+  "manifestVersion": 2,
+  "id": "orchestration-panel",
+  "name": "Orchestration Panel",
+  "version": "2.0.0",
+  "description": "Visual multi-agent task DAG workbench for Orca: live coordination modes, hexagonal approval gates, scoped Session wakeups, native resume, and a self-hosted embedded backend.",
+  "author": {
+    "name": "yyq19990828",
+    "url": "https://github.com/yyq19990828"
+  },
+  "repository": "https://github.com/yyq19990828/Orca-dag",
+  "homepage": "https://github.com/yyq19990828/Orca-dag",
+  "icon": "icon.png",
+  "cover": {
+    "path": "assets/workbench-dark.png",
+    "alt": "Orchestration Panel four-zone dark IDE workbench showing a multi-agent task DAG, hexagonal gate, and live messages."
+  },
+  "screenshots": [
+    {
+      "path": "assets/workbench-dark.png",
+      "alt": "Orchestration Panel dark workbench with DAG canvas, Fleet sidebar, hexagonal approval gate, and Messages inspector.",
+      "caption": "4-zone DAG workbench with hexagonal approval gates, retained model and worktree chips, and live coordinator messages.",
+      "theme": "dark"
+    }
+  ],
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.263"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "worker.mjs",
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "agent:read"
+    },
+    {
+      "kind": "agent:launch"
+    },
+    {
+      "kind": "history:read"
+    },
+    {
+      "kind": "notifications:show"
+    },
+    {
+      "kind": "storage:own"
+    },
+    {
+      "kind": "settings:own"
+    }
+  ],
+  "contributes": {
+    "events": [
+      {
+        "on": "agent.status.changed"
+      },
+      {
+        "on": "workspace.changed"
+      },
+      {
+        "on": "workspace.removed"
+      }
+    ],
+    "hooks": [
+      {
+        "event": "agent.tool.after"
+      },
+      {
+        "event": "agent.prompt.before"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "run",
+        "icon": "layers",
+        "text": "Orchestration",
+        "tone": "neutral",
+        "tooltip": "Open Orchestration Panel full tab",
+        "command": "orchestration-panel.openTab"
+      }
+    ],
+    "commands": [
+      {
+        "id": "orchestration-panel.openTab",
+        "title": "Orchestration Panel: Open Full Tab"
+      },
+      {
+        "id": "orchestration-panel.status",
+        "title": "Orchestration Panel: Connection Status"
+      },
+      {
+        "id": "orchestration-panel.reconnect",
+        "title": "Orchestration Panel: Reconnect Viewer"
+      }
+    ],
+    "settings": [
+      {
+        "key": "toolStream",
+        "title": "Refresh Session on tool events",
+        "description": "Use agent.tool.after to wake matching worker transcript reads early. Does not send tool previews or disable regular transcript reads.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "notify",
+        "title": "Gate and failure notifications",
+        "description": "Show desktop notifications when a Run has a pending gate, permission prompt, or failed worker.",
+        "type": "boolean",
+        "default": true
+      }
+    ],
+    "panels": [
+      {
+        "id": "orchestration",
+        "title": "Orchestration Panel",
+        "icon": "layers",
+        "entry": "panel/index.html",
+        "ui": "html"
+      }
+    ]
+  }
+}
