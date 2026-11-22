@@ -11,7 +11,7 @@
 // 4. Report connection status without exposing privileged host diagnostics.
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -28,7 +28,24 @@ import type {
 } from './protocol'
 
 const PLUGIN_ID = 'orchestration-panel'
-const PLUGIN_VERSION = '0.1.0'
+const DEFAULT_PLUGIN_VERSION = '0.1.0'
+
+function readPluginVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url))
+    for (const root of [here, dirname(here)]) {
+      const manifestPath = join(root, 'orca-plugin.json')
+      if (!existsSync(manifestPath)) continue
+      const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as { version?: unknown }
+      if (typeof parsed.version === 'string' && parsed.version.trim()) return parsed.version.trim()
+    }
+  } catch {
+    // Non-file URL or test environment without manifest on disk.
+  }
+  return DEFAULT_PLUGIN_VERSION
+}
+
+const PLUGIN_VERSION = readPluginVersion()
 const MAX_STATUS_EVENTS = 50
 const DISCOVERY_INTERVAL_MS = 10_000
 const FLUSH_DEBOUNCE_MS = 100
